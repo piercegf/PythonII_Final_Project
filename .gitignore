@@ -1,0 +1,3 @@
+# Ignore specific CSV files in the data folder
+data/us-companies.csv
+data/us-shareprices-daily.csv
