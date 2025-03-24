@@ -11,3 +11,4 @@ simfin==1.0.1
 python-dotenv==1.0.1
 setuptools>=58.0.0
 ydata-profiling>=4.0.0
+IPython>=8.0.0
