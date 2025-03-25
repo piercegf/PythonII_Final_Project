@@ -59,16 +59,16 @@ if st.sidebar.button("Load Data"):
         mean_price = df_filtered["Close"].mean()
 
         # Calculate deltas relative to the mean
-        delta_low = low_price - mean_price    # Expected to be negative
-        delta_high = high_price - mean_price  # Expected to be positive
+        delta_low = low_price - mean_price    # This will be negative
+        delta_high = high_price - mean_price  # This will be positive
 
         # Create three columns for Low, Mean, and High
         col1, col2, col3 = st.columns(3)
         col1.metric(
             label="Low", 
             value=f"${low_price:.2f}", 
-            delta=f"${delta_low:.2f}", 
-            delta_color="inverse",  # negative delta in green
+            delta=f"${delta_low:.2f}",  # Remove manual arrow here
+            delta_color="inverse",      # Streamlit will add the correct arrow automatically
             border=True
         )
         col2.metric(
@@ -79,7 +79,8 @@ if st.sidebar.button("Load Data"):
         col3.metric(
             label="High", 
             value=f"${high_price:.2f}", 
-            delta=f"${delta_high:.2f}",
+            delta=f"${delta_high:.2f}", # Remove manual arrow here
+            delta_color="normal",       # Streamlit will add the correct arrow automatically
             border=True
         )
 
@@ -99,19 +100,18 @@ if st.sidebar.button("Load Data"):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-BASE_DIR = Path(__file__).resolve().parent.parent  # Moves two levels up from pages/ to the root folder
+# ... (keep all your previous imports and setup code)
 
-# Define the path to your CSV file
+BASE_DIR = Path(__file__).resolve().parent.parent
 ml_predictions_path = BASE_DIR / "data" / "ml_predictions_2.csv"
 
-# Check if the file exists
 if ml_predictions_path.exists():
     df_preds = pd.read_csv(ml_predictions_path, parse_dates=["Date"])
 else:
     st.error(f"File not found: {ml_predictions_path}")
+    st.stop()  # Stop execution if file not found
 
 st.subheader("Predicted vs Actual Closing Price")
-
 st.markdown("""
 Here choose a ticker and you will see a graph comparing the actual closing prices versus the predicted ones from our
             proprietary Machine Learning model.
@@ -123,13 +123,29 @@ selected_ticker = st.selectbox("Select a Ticker", sorted(df_preds["Ticker"].uniq
 # --- Filter ML Predictions ---
 df_preds_filtered = df_preds[df_preds["Ticker"] == selected_ticker]
 
+# Separate historical data (with actuals) and future prediction
+historical_data = df_preds_filtered[df_preds_filtered['Close'].notna()]
+future_prediction = df_preds_filtered[df_preds_filtered['Close'].isna()]
+
+# Plot the chart
 fig = px.line(
-    df_preds_filtered,
+    historical_data,
     x="Date",
     y=["Close", "Predicted_Close"],
     title=f"{selected_ticker} Actual vs Predicted Closing Prices",
     labels={"Date": "Date", "value": "Closing Price ($)", "variable": "Legend"}
 )
+
+# Add future prediction if available
+if not future_prediction.empty:
+    fig.add_scatter(
+        x=future_prediction["Date"],
+        y=future_prediction["Predicted_Close"],
+        mode='markers',
+        name='Future Prediction',
+        marker=dict(color='red', size=10)
+    )
+
 fig.update_layout(
     xaxis_title="Date",
     yaxis_title="Closing Price ($)",
@@ -137,45 +153,57 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# Calculate performance metrics
-mae = mean_absolute_error(df_preds_filtered['Close'], df_preds_filtered['Predicted_Close'])
-direction_accuracy = accuracy_score(
-    (df_preds_filtered['Close'].diff() > 0), 
-    (df_preds_filtered['Predicted_Close'].diff() > 0)
-)
-correlation = df_preds_filtered['Close'].corr(df_preds_filtered['Predicted_Close'])
+# Show future prediction in a text box if available
+if not future_prediction.empty:
+    next_date = future_prediction["Date"].iloc[0].strftime('%Y-%m-%d')
+    next_pred = future_prediction["Predicted_Close"].iloc[0]
+    st.success(f"🚀 Next day prediction ({next_date}): ${next_pred:.2f}")
 
-# Create metrics columns
-metric_col1, metric_col2, metric_col3 = st.columns(3)
-
-with metric_col1:
-    st.metric(
-        label="💰 Mean Absolute Error",
-        value=f"${mae:.2f}",
-        help="Average dollar difference between predicted and actual prices"
+# Calculate performance metrics only for historical data
+if not historical_data.empty:
+    mae = mean_absolute_error(
+        historical_data['Close'], 
+        historical_data['Predicted_Close']
     )
-
-with metric_col2:
-    st.metric(
-        label="📈 Direction Accuracy",
-        value=f"{direction_accuracy:.1%}",
-        help="Percentage of correct up/down predictions"
+    direction_accuracy = accuracy_score(
+        (historical_data['Close'].diff() > 0).dropna(), 
+        (historical_data['Predicted_Close'].diff() > 0).dropna()
     )
+    correlation = historical_data['Close'].corr(historical_data['Predicted_Close'])
+    
+    # Create metrics columns
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
 
-with metric_col3:
-    st.metric(
-        label="🔗 Price Correlation",
-        value=f"{correlation:.2f}",
-        help="Strength of relationship between predictions and reality (1 = perfect)"
-    )
+    with metric_col1:
+        st.metric(
+            label="💰 Mean Absolute Error",
+            value=f"${mae:.2f}",
+            help="Average dollar difference between predicted and actual prices"
+        )
 
-# Add performance insights
-st.markdown("""
-### 📌 Model Performance Insights
-- **When MAE < $2.00**: The model predictions are very close to actual market prices  
-- **Direction Accuracy > 70%**: The model reliably predicts price movement direction  
-- **Correlation > 0.85**: Strong linear relationship between predictions and actuals  
-""")
+    with metric_col2:
+        st.metric(
+            label="📈 Direction Accuracy",
+            value=f"{direction_accuracy:.1%}",
+            help="Percentage of correct up/down predictions"
+        )
+
+    with metric_col3:
+        st.metric(
+            label="🔗 Price Correlation",
+            value=f"{correlation:.2f}",
+            help="Strength of relationship between predictions and reality (1 = perfect)"
+        )
+
+    # Add performance insights
+    st.markdown("""
+    ### 📌 Model Performance Insights
+    - **When MAE < $2.00**: The model predictions are very close to actual market prices  
+    - **Direction Accuracy > 70%**: The model reliably predicts price movement direction  
+    - **Correlation > 0.85**: Strong linear relationship between predictions and actuals  
+    """)
+else:
+    st.warning("No historical data available for performance metrics.")
 
 # Add disclaimer
 st.caption("Note: Metrics calculated for the selected date range and ticker only")
